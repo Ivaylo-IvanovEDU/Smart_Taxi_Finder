@@ -218,8 +218,8 @@ def build_map():
     center = st.session_state.map_center
     fmap = folium.Map(
         location=center,
-        zoom_start=14,
-        tiles="CartoDB positron",
+        zoom_start=17 if st.session_state.user_location is not None else 14,
+        tiles="OpenStreetMap",
         control_scale=True,
         prefer_canvas=True,
     )
@@ -317,7 +317,7 @@ st.markdown(
 
 with st.sidebar:
     st.markdown("## 📍 Your location")
-    st.write("Allow browser location access to center the map on your real position.")
+    st.write("Press the location button below and allow your browser to share this device's location.")
 
     # Uses browser navigator.geolocation.getCurrentPosition().
     # The browser asks the user for permission.
@@ -330,28 +330,39 @@ with st.sidebar:
         if lat is not None and lon is not None:
             new_location = (float(lat), float(lon))
             old_location = st.session_state.user_location
-            changed = (
-                old_location is None
-                or haversine_km(
+            first_fix = old_location is None
+            moved_significantly = (
+                old_location is not None
+                and haversine_km(
                     old_location[0], old_location[1],
                     new_location[0], new_location[1],
                 ) > 0.05
             )
+
+            # Store the latest coordinates returned by the browser.
             st.session_state.user_location = new_location
             st.session_state.gps_accuracy = (
                 float(accuracy) if accuracy is not None else None
             )
-            if changed:
-                st.session_state.map_center = new_location
+            st.session_state.map_center = new_location
+
+            # First GPS fix becomes the default pickup. A later map selection
+            # is preserved when the browser returns the same GPS position.
+            if first_fix:
                 st.session_state.pickup = new_location
                 st.session_state.taxis = create_taxis(new_location)
                 st.session_state.selected_taxi = None
                 st.session_state.last_map_click = None
                 st.session_state.booking_message = ""
                 st.rerun()
+            elif moved_significantly:
+                st.session_state.taxis = create_taxis(new_location)
+                st.session_state.selected_taxi = None
+                st.session_state.booking_message = ""
+                st.rerun()
 
     if st.session_state.user_location is not None:
-        st.success("GPS location received")
+        st.success("Live device location received")
         st.caption(
             f"Lat: {st.session_state.user_location[0]:.5f} · "
             f"Lon: {st.session_state.user_location[1]:.5f}"
@@ -364,7 +375,7 @@ with st.sidebar:
             st.rerun()
     else:
         st.info("GPS not set yet. Press the location button above and allow permission, or click the map to choose a pickup point.")
-        st.caption("If GPS is unavailable, the map opens around Plovdiv as a demo fallback.")
+        st.caption("GPS requires HTTPS and browser permission. If blocked, enable Location for this site in browser settings. The blue marker uses your device coordinates; the accuracy circle shows the reported uncertainty.")
 
     st.divider()
     st.markdown("## 🎮 Simulation")
