@@ -1,15 +1,15 @@
 import math
 import random
-import time
 
 import folium
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
+from streamlit_geolocation import streamlit_geolocation
 
 # ============================================================
-# TaxiGo — Smart Taxi Finder (educational simulation)
-# Stable-map version: no automatic page/map refresh.
+# TaxiGo — Smart Taxi Finder
+# Educational demo: browser GPS + simulated taxis
 # ============================================================
 
 st.set_page_config(
@@ -19,89 +19,112 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-CENTER = (42.1354, 24.7453)  # Plovdiv
-LAT_BOUNDS = (42.105, 42.165)
-LON_BOUNDS = (24.705, 24.785)
+DEFAULT_CENTER = (42.1354, 24.7453)  # Plovdiv fallback
+EARTH_KM = 6371.0088
 TAXI_COUNT = 12
-EARTH_RADIUS_KM = 6371.0088
 
-# ---------------------------- Theme ----------------------------
+# ---------------------------- Modern UI ----------------------------
 
 st.markdown(
     """
     <style>
-    /* Main surfaces and readable text */
+    :root {
+        --bg: #F4F7FB;
+        --surface: #FFFFFF;
+        --ink: #172338;
+        --muted: #68778D;
+        --line: #E3EAF2;
+        --navy: #14243A;
+        --yellow: #FFC928;
+        --green: #16A36A;
+    }
     .stApp, [data-testid="stAppViewContainer"] {
-        background: #101827 !important;
-        color: #F8FAFC !important;
+        background: var(--bg) !important;
+        color: var(--ink) !important;
     }
-    [data-testid="stHeader"] { background: #101827 !important; }
+    [data-testid="stHeader"] { background: rgba(244,247,251,.92) !important; }
     [data-testid="stSidebar"] {
-        background: #1B2940 !important;
-        border-right: 1px solid #34445C;
+        background: #14243A !important;
+        border-right: 1px solid #263B56;
     }
-    [data-testid="stSidebar"] * {
-        color: #E5EDF8 !important;
+    [data-testid="stSidebar"] * { color: #F4F7FB !important; }
+    .main .block-container { max-width: 1500px; padding-top: 1.8rem; }
+    h1, h2, h3, h4, p, li, label, .stMarkdown {
+        color: var(--ink);
     }
-    .main .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    h1, h2, h3, h4, p, li, label, .stMarkdown,
-    [data-testid="stCaptionContainer"], [data-testid="stText"] {
-        color: #F1F5F9;
+    [data-testid="stCaptionContainer"] p {
+        color: var(--muted) !important;
     }
-    [data-testid="stCaptionContainer"] p { color: #AFC0D5 !important; }
-    .taxigo-subtitle {
-        color: #B8C9DF !important;
-        text-align: center;
-        margin-top: -12px;
+    .hero {
+        background: linear-gradient(120deg, #14243A 0%, #203B5B 70%, #28506D 100%);
+        padding: 28px 32px;
+        border-radius: 22px;
+        color: white !important;
+        margin-bottom: 22px;
+        box-shadow: 0 12px 30px rgba(20,36,58,.13);
     }
-    .taxigo-muted { color: #B8C9DF !important; }
-    .taxigo-card {
-        background: #1E2D43;
-        border: 1px solid #40536D;
-        border-radius: 14px;
-        padding: 16px;
-        margin: 8px 0;
-        color: #F8FAFC !important;
+    .hero h1 { color: white !important; font-size: 2.35rem; margin: 0; }
+    .hero p { color: #D6E2F0 !important; margin: 8px 0 0 0; }
+    .eyebrow {
+        color: #FFD85C !important; text-transform: uppercase;
+        letter-spacing: .13em; font-size: .75rem; font-weight: 800;
     }
-    .taxigo-card * { color: #F8FAFC !important; }
-    .taxigo-yellow { color: #FDE047 !important; font-weight: 800; }
-    [data-testid="stMetric"] {
-        background: #1E2D43;
-        border: 1px solid #40536D;
-        border-radius: 12px;
-        padding: 12px;
+    .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: 0 5px 18px rgba(23,35,56,.045);
+        margin-bottom: 14px;
     }
-    [data-testid="stMetric"] label,
-    [data-testid="stMetric"] [data-testid="stMetricValue"],
-    [data-testid="stMetric"] [data-testid="stMetricDelta"] {
-        color: #F8FAFC !important;
+    .panel-title { color: var(--ink) !important; font-weight: 800; font-size: 1.05rem; }
+    .muted { color: var(--muted) !important; }
+    .best {
+        background: linear-gradient(135deg, #14243A, #244968);
+        color: white !important;
+        padding: 20px;
+        border-radius: 18px;
+        margin: 12px 0 18px 0;
     }
-    /* Buttons */
+    .best * { color: white !important; }
+    .best .eta { color: #FFD85C !important; font-size: 2.1rem; font-weight: 900; }
     div.stButton > button {
-        border-radius: 10px;
-        font-weight: 700;
-        min-height: 42px;
-        background: #FACC15;
-        color: #172033 !important;
-        border: 0;
+        border-radius: 12px;
+        border: 1px solid #E4B31C;
+        background: #FFC928;
+        color: #172338 !important;
+        font-weight: 800;
+        min-height: 44px;
     }
     div.stButton > button:hover {
-        background: #FDE047;
-        color: #111827 !important;
-        border: 0;
+        background: #FFDA61;
+        border-color: #FFDA61;
+        color: #172338 !important;
     }
-    div.stButton > button p { color: #172033 !important; }
-    /* Inputs and dataframe */
-    [data-testid="stDataFrame"] { border: 1px solid #40536D; border-radius: 10px; }
-    [data-testid="stAlert"] p { color: #172033 !important; }
-    [data-testid="stAlert"] svg { color: #172033 !important; }
-    hr { border-color: #40536D !important; }
+    div.stButton > button p { color: #172338 !important; }
+    [data-testid="stMetric"] {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 14px;
+    }
+    [data-testid="stMetric"] label,
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: var(--ink) !important;
+    }
+    [data-testid="stAlert"] p { color: #172338 !important; }
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    hr { border-color: var(--line) !important; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------------------------- Calculations ----------------------------
+# ---------------------------- Geo / distance helpers ----------------------------
 
 def haversine_km(lat1, lon1, lat2, lon2):
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -111,18 +134,32 @@ def haversine_km(lat1, lon1, lat2, lon2):
         math.sin(dlat / 2) ** 2
         + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
     )
-    return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(a))
+    return 2 * EARTH_KM * math.asin(math.sqrt(a))
 
 
-def random_point():
-    return random.uniform(*LAT_BOUNDS), random.uniform(*LON_BOUNDS)
+def offset_coordinate(lat, lon, north_km, east_km):
+    """Approximate a nearby coordinate around a real GPS point."""
+    new_lat = lat + north_km / 111.0
+    cos_lat = max(0.2, math.cos(math.radians(lat)))
+    new_lon = lon + east_km / (111.0 * cos_lat)
+    return new_lat, new_lon
 
 
-def create_taxis():
+def random_near(center, radius_km=3.2):
+    angle = random.uniform(0, 2 * math.pi)
+    radius = radius_km * math.sqrt(random.random())
+    return offset_coordinate(
+        center[0], center[1],
+        radius * math.cos(angle),
+        radius * math.sin(angle),
+    )
+
+
+def create_taxis(center):
     fleet = []
     for taxi_id in range(1, TAXI_COUNT + 1):
-        lat, lon = random_point()
-        target_lat, target_lon = random_point()
+        lat, lon = random_near(center)
+        target_lat, target_lon = random_near(center)
         fleet.append({
             "id": taxi_id,
             "lat": lat,
@@ -135,73 +172,91 @@ def create_taxis():
     return fleet
 
 
-def move_taxis(seconds=10):
-    """Advance every taxi in the simulation by the given simulated seconds."""
+def move_taxis(seconds=15):
     seconds = max(0.0, min(float(seconds), 3600.0))
     for taxi in st.session_state.taxis:
         if taxi["status"] == "Arrived":
             continue
-
         remaining = haversine_km(
             taxi["lat"], taxi["lon"],
             taxi["target_lat"], taxi["target_lon"],
         )
-
         if remaining <= 0.025:
             if taxi["status"] == "Coming":
                 taxi["lat"] = taxi["target_lat"]
                 taxi["lon"] = taxi["target_lon"]
                 taxi["status"] = "Arrived"
             else:
-                taxi["target_lat"], taxi["target_lon"] = random_point()
+                taxi["target_lat"], taxi["target_lon"] = random_near(
+                    st.session_state.map_center
+                )
             continue
-
-        travelled = taxi["speed"] * seconds / 3600.0
+        travelled = taxi["speed"] * seconds / 3600
         fraction = min(travelled / remaining, 1.0)
         taxi["lat"] += (taxi["target_lat"] - taxi["lat"]) * fraction
         taxi["lon"] += (taxi["target_lon"] - taxi["lon"]) * fraction
 
 
-def eta_for(taxi, pickup):
-    direct_km = haversine_km(
+def estimate_eta(taxi, pickup):
+    direct = haversine_km(
         taxi["lat"], taxi["lon"], pickup[0], pickup[1]
     )
-    # Simplified detour factor: this is not a real road-routing service.
-    road_km = direct_km * 1.25
-    eta_minutes = road_km / max(taxi["speed"], 1) * 60 + 0.5
-    return direct_km, road_km, eta_minutes
+    # Educational approximation, not live road traffic/navigation.
+    road_distance = direct * 1.25
+    eta = road_distance / max(taxi["speed"], 1) * 60 + 0.5
+    return direct, road_distance, eta
 
 
-def find_taxi(taxi_id):
+def get_taxi(taxi_id):
     return next(
-        (t for t in st.session_state.taxis if t["id"] == taxi_id),
+        (taxi for taxi in st.session_state.taxis if taxi["id"] == taxi_id),
         None,
     )
 
 
 def build_map():
-    taxi_map = folium.Map(
-        location=CENTER,
+    center = st.session_state.map_center
+    fmap = folium.Map(
+        location=center,
         zoom_start=14,
-        tiles="OpenStreetMap",
+        tiles="CartoDB positron",
         control_scale=True,
         prefer_canvas=True,
     )
 
+    # Actual browser-provided device position
+    if st.session_state.user_location is not None:
+        lat, lon = st.session_state.user_location
+        folium.Marker(
+            (lat, lon),
+            tooltip="Your current GPS position",
+            popup="YOUR CURRENT LOCATION",
+            icon=folium.Icon(color="blue", icon="crosshairs", prefix="fa"),
+        ).add_to(fmap)
+        folium.Circle(
+            (lat, lon),
+            radius=st.session_state.gps_accuracy or 30,
+            color="#2878D0",
+            fill=True,
+            fill_opacity=0.10,
+            tooltip="GPS accuracy area",
+        ).add_to(fmap)
+
+    # Pickup point (may be different from current GPS position)
     if st.session_state.pickup is not None:
         folium.Marker(
             st.session_state.pickup,
-            tooltip="Your pickup point",
-            popup="YOUR PICKUP LOCATION",
-            icon=folium.Icon(color="red", icon="user", prefix="fa"),
-        ).add_to(taxi_map)
+            tooltip="Taxi pickup point",
+            popup="PICKUP POINT",
+            icon=folium.Icon(color="red", icon="map-marker", prefix="fa"),
+        ).add_to(fmap)
 
     for taxi in st.session_state.taxis:
         color = {
             "Available": "green",
             "Coming": "orange",
             "Arrived": "red",
-        }.get(taxi["status"], "blue")
+        }.get(taxi["status"], "gray")
 
         folium.Marker(
             (taxi["lat"], taxi["lon"]),
@@ -212,34 +267,28 @@ def build_map():
                 f"Status: {taxi['status']}"
             ),
             icon=folium.Icon(color=color, icon="taxi", prefix="fa"),
-        ).add_to(taxi_map)
+        ).add_to(fmap)
 
         if taxi["status"] == "Coming" and st.session_state.pickup:
             folium.PolyLine(
                 [(taxi["lat"], taxi["lon"]), st.session_state.pickup],
-                color="#F59E0B",
+                color="#F2A900",
                 weight=4,
                 opacity=0.9,
-                dash_array="8 8",
-                tooltip=f"Simulated route · taxi #{taxi['id']}",
-            ).add_to(taxi_map)
+                dash_array="7 8",
+            ).add_to(fmap)
 
-    folium.Circle(
-        CENTER,
-        radius=3300,
-        color="#64748B",
-        weight=1,
-        fill=False,
-        tooltip="TaxiGo demo area",
-    ).add_to(taxi_map)
-
-    return taxi_map
+    return fmap
 
 
 # ---------------------------- Session state ----------------------------
 
-if "taxis" not in st.session_state:
-    st.session_state.taxis = create_taxis()
+if "user_location" not in st.session_state:
+    st.session_state.user_location = None
+if "gps_accuracy" not in st.session_state:
+    st.session_state.gps_accuracy = None
+if "map_center" not in st.session_state:
+    st.session_state.map_center = DEFAULT_CENTER
 if "pickup" not in st.session_state:
     st.session_state.pickup = None
 if "selected_taxi" not in st.session_state:
@@ -248,114 +297,135 @@ if "last_map_click" not in st.session_state:
     st.session_state.last_map_click = None
 if "booking_message" not in st.session_state:
     st.session_state.booking_message = ""
-if "simulation_step" not in st.session_state:
-    st.session_state.simulation_step = 0
+if "taxis" not in st.session_state:
+    st.session_state.taxis = create_taxis(st.session_state.map_center)
 
 # ---------------------------- Header ----------------------------
 
 st.markdown(
-    "<h1 style='text-align:center;'>🚕 TaxiGo</h1>",
+    """
+    <div class="hero">
+      <div class="eyebrow">Smart urban mobility · Student project</div>
+      <h1>🚕 TaxiGo</h1>
+      <p>Find the closest available taxi. Choose your pickup point. Get moving.</p>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
-st.markdown(
-    '<p class="taxigo-subtitle">SMART TAXI FINDER · '
-    'Educational simulation · Plovdiv</p>',
-    unsafe_allow_html=True,
-)
-st.divider()
 
-# ---------------------------- Sidebar controls ----------------------------
+# ---------------------------- Sidebar / GPS ----------------------------
 
 with st.sidebar:
-    st.title("⚙️ Control panel")
-    st.markdown(
-        "This is a simulation. No real taxis, drivers or GPS devices are connected."
-    )
-    st.markdown("### Simulation controls")
+    st.markdown("## 📍 Your location")
+    st.write("Allow browser location access to center the map on your real position.")
 
-    if st.button("▶️ Move taxis (10 simulated seconds)", use_container_width=True):
-        move_taxis(10)
-        st.session_state.simulation_step += 1
+    # Uses browser navigator.geolocation.getCurrentPosition().
+    # The browser asks the user for permission.
+    gps_data = streamlit_geolocation()
+
+    if isinstance(gps_data, dict):
+        lat = gps_data.get("latitude")
+        lon = gps_data.get("longitude")
+        accuracy = gps_data.get("accuracy")
+        if lat is not None and lon is not None:
+            new_location = (float(lat), float(lon))
+            old_location = st.session_state.user_location
+            changed = (
+                old_location is None
+                or haversine_km(
+                    old_location[0], old_location[1],
+                    new_location[0], new_location[1],
+                ) > 0.05
+            )
+            st.session_state.user_location = new_location
+            st.session_state.gps_accuracy = (
+                float(accuracy) if accuracy is not None else None
+            )
+            if changed:
+                st.session_state.map_center = new_location
+                st.session_state.pickup = new_location
+                st.session_state.taxis = create_taxis(new_location)
+                st.session_state.selected_taxi = None
+                st.session_state.last_map_click = None
+                st.session_state.booking_message = ""
+                st.rerun()
+
+    if st.session_state.user_location is not None:
+        st.success("GPS location received")
+        st.caption(
+            f"Lat: {st.session_state.user_location[0]:.5f} · "
+            f"Lon: {st.session_state.user_location[1]:.5f}"
+        )
+        if st.session_state.gps_accuracy is not None:
+            st.caption(f"Reported accuracy: ±{st.session_state.gps_accuracy:.0f} m")
+        if st.button("Use my current position as pickup", use_container_width=True):
+            st.session_state.pickup = st.session_state.user_location
+            st.session_state.selected_taxi = None
+            st.rerun()
+    else:
+        st.info("GPS not set yet. Press the location button above and allow permission, or click the map to choose a pickup point.")
+        st.caption("If GPS is unavailable, the map opens around Plovdiv as a demo fallback.")
+
+    st.divider()
+    st.markdown("## 🎮 Simulation")
+    if st.button("▶ Move taxis · 15 seconds", use_container_width=True):
+        move_taxis(15)
         st.rerun()
-
-    if st.button("⏩ Move taxis (1 simulated minute)", use_container_width=True):
+    if st.button("⏩ Move taxis · 1 minute", use_container_width=True):
         move_taxis(60)
-        st.session_state.simulation_step += 1
         st.rerun()
-
-    if st.button("🔄 Generate new taxis", use_container_width=True):
-        st.session_state.taxis = create_taxis()
-        st.session_state.pickup = None
+    if st.button("🔄 Reset taxi fleet", use_container_width=True):
+        st.session_state.taxis = create_taxis(st.session_state.map_center)
         st.session_state.selected_taxi = None
-        st.session_state.last_map_click = None
-        st.session_state.booking_message = ""
-        st.session_state.simulation_step = 0
-        st.rerun()
-
-    if st.button("📍 Clear pickup point", use_container_width=True):
-        st.session_state.pickup = None
-        st.session_state.selected_taxi = None
-        st.session_state.last_map_click = None
         st.session_state.booking_message = ""
         st.rerun()
-
     st.divider()
     st.markdown("### Map legend")
+    st.markdown("🔵 **Your real GPS position**")
+    st.markdown("🔴 **Selected pickup point**")
     st.markdown("🟢 **Available taxi**")
-    st.markdown("🟠 **Taxi travelling to pickup**")
+    st.markdown("🟠 **Taxi on the way**")
     st.markdown("🔴 **Taxi arrived**")
-    st.markdown("📍 **Your pickup point**")
-    st.divider()
-    st.caption("Stable map mode: no automatic page refresh. Use the simulation buttons to move taxis.")
 
-# ---------------------------- Main columns ----------------------------
+# ---------------------------- Main map and taxi list ----------------------------
 
-map_col, info_col = st.columns([2.1, 1], gap="large")
+map_col, list_col = st.columns([1.8, 1], gap="large")
 
 with map_col:
-    st.subheader("🗺️ Live taxi map")
-    st.caption("Click once on the map to set your pickup point. Use the sidebar controls to advance the simulation.")
+    st.markdown("### 🗺️ Live map")
+    st.caption("Blue marker = your device location · Red marker = pickup · Click the map to change pickup.")
 
-    map_output = st_folium(
+    map_result = st_folium(
         build_map(),
         width=None,
-        height=590,
-        key="taxigo_stable_map",
+        height=620,
+        key="taxigo_gps_map",
         returned_objects=["last_clicked"],
         use_container_width=True,
     )
 
-    clicked = map_output.get("last_clicked") if map_output else None
+    clicked = map_result.get("last_clicked") if map_result else None
     if clicked:
         click_key = (round(clicked["lat"], 6), round(clicked["lng"], 6))
         if click_key != st.session_state.last_map_click:
             st.session_state.last_map_click = click_key
-            st.session_state.pickup = (clicked["lat"], clicked["lng"])
+            st.session_state.pickup = (float(clicked["lat"]), float(clicked["lng"]))
             st.session_state.selected_taxi = None
             st.session_state.booking_message = ""
             st.rerun()
 
-with info_col:
-    st.subheader("🚖 Nearby taxis")
+with list_col:
+    st.markdown("### 🚖 Nearby taxis")
     pickup = st.session_state.pickup
-    ranked = []
 
     if pickup is None:
-        st.info("Choose a pickup point by clicking anywhere on the map.")
-        st.markdown(
-            """
-            **How it works**
-            1. Click your pickup point on the map.
-            2. Compare taxi distances and estimated arrival times.
-            3. Select a taxi.
-            4. Press **Call this taxi**.
-            """
-        )
+        st.info("Set your real GPS position or click on the map to choose a pickup point.")
+        ranked = []
     else:
-        st.success(f"Pickup selected · {pickup[0]:.5f}, {pickup[1]:.5f}")
+        ranked = []
         for taxi in st.session_state.taxis:
             if taxi["status"] == "Available":
-                direct, road, eta = eta_for(taxi, pickup)
+                direct, road, eta = estimate_eta(taxi, pickup)
                 ranked.append({
                     "taxi": taxi,
                     "direct": direct,
@@ -364,21 +434,21 @@ with info_col:
                 })
         ranked.sort(key=lambda item: item["eta"])
 
-        if not ranked:
-            st.warning("There are no available taxis. Generate new taxis or move the simulation.")
-        else:
+        st.markdown(
+            f'<div class="panel"><span class="muted">Pickup coordinates</span><br>'
+            f'<b>{pickup[0]:.5f}, {pickup[1]:.5f}</b></div>',
+            unsafe_allow_html=True,
+        )
+
+        if ranked:
             fastest = ranked[0]
             st.markdown(
                 f"""
-                <div class="taxigo-card">
-                  <div class="taxigo-muted">⚡ FASTEST ESTIMATED TAXI</div>
-                  <div class="taxigo-yellow" style="font-size:30px;">
-                    Taxi #{fastest['taxi']['id']}
-                  </div>
-                  <div style="font-size:25px;font-weight:800;color:#FFFFFF;">
-                    {max(1, math.ceil(fastest['eta']))} min
-                  </div>
-                  <div class="taxigo-muted">Estimated arrival time</div>
+                <div class="best">
+                  <div style="font-size:.78rem;letter-spacing:.1em;color:#D5E3F0;">⚡ FASTEST ESTIMATED ARRIVAL</div>
+                  <div style="font-size:1.6rem;font-weight:850;">Taxi #{fastest['taxi']['id']}</div>
+                  <div class="eta">{max(1, math.ceil(fastest['eta']))} min</div>
+                  <div style="color:#D5E3F0;">Estimated arrival · simulated</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -388,105 +458,96 @@ with info_col:
                 taxi = item["taxi"]
                 taxi_id = taxi["id"]
                 with st.container(border=True):
-                    st.markdown(f"**🚕 Taxi #{taxi_id}**")
-                    st.write(f"Distance: **{item['direct']:.2f} km**")
-                    st.write(f"Estimated road distance: **{item['road']:.2f} km**")
-                    st.write(f"ETA: **{max(1, math.ceil(item['eta']))} min**")
-                    st.write(f"Speed: **{taxi['speed']} km/h**")
+                    top_a, top_b = st.columns([2, 1])
+                    top_a.markdown(f"**🚕 Taxi #{taxi_id}**")
+                    top_b.markdown(f"**{max(1, math.ceil(item['eta']))} min**")
+                    st.caption(
+                        f"{item['direct']:.2f} km direct · "
+                        f"{item['road']:.2f} km estimated road · "
+                        f"{taxi['speed']} km/h"
+                    )
                     if st.button(
-                        f"Select taxi #{taxi_id}",
-                        key=f"select_{taxi_id}",
+                        f"Choose taxi #{taxi_id}",
+                        key=f"choose_{taxi_id}",
                         use_container_width=True,
                     ):
                         st.session_state.selected_taxi = taxi_id
                         st.session_state.booking_message = ""
                         st.rerun()
+        else:
+            st.warning("No free taxis. Reset the fleet to create new simulated taxis.")
 
 # ---------------------------- Booking ----------------------------
 
 st.divider()
-st.subheader("📲 Your booking")
+st.markdown("### 📲 Booking details")
 
-selected = find_taxi(st.session_state.selected_taxi) if st.session_state.selected_taxi else None
+selected = get_taxi(st.session_state.selected_taxi) if st.session_state.selected_taxi else None
 
 if selected is None:
-    st.info("Select an available taxi from the list to make a booking.")
+    st.info("Choose a taxi from the list to see the booking action.")
 elif st.session_state.pickup is None:
-    st.warning("Choose a pickup point on the map first.")
+    st.warning("Choose a pickup location first.")
 else:
-    b1, b2 = st.columns([2, 1])
-    with b1:
-        st.markdown(f"### Selected vehicle: 🚕 Taxi #{selected['id']}")
-        if selected["status"] == "Available":
-            _, _, selected_eta = eta_for(selected, st.session_state.pickup)
-            st.write(
-                f"Estimated arrival: **{max(1, math.ceil(selected_eta))} min** · "
-                f"Speed: **{selected['speed']} km/h**"
-            )
-        elif selected["status"] == "Coming":
-            remaining = haversine_km(
-                selected["lat"], selected["lon"],
-                st.session_state.pickup[0], st.session_state.pickup[1],
-            )
-            st.write(f"Taxi is on its way · Approximate remaining distance: **{remaining:.2f} km**")
-        else:
-            st.write("The taxi has arrived at your pickup point.")
-
-    with b2:
+    left, right = st.columns([2, 1])
+    with left:
+        st.markdown(f"**Selected taxi: #{selected['id']}**")
+        st.write(f"Vehicle speed: {selected['speed']} km/h")
+        st.write(f"Status: {selected['status']}")
+    with right:
         if selected["status"] == "Available":
             if st.button("🚕 CALL THIS TAXI", type="primary", use_container_width=True):
                 selected["status"] = "Coming"
                 selected["target_lat"] = st.session_state.pickup[0]
                 selected["target_lon"] = st.session_state.pickup[1]
-                st.session_state.booking_message = f"Taxi #{selected['id']} has been dispatched!"
+                st.session_state.booking_message = f"Taxi #{selected['id']} is on its way (simulation)."
                 st.rerun()
         elif selected["status"] == "Coming":
-            st.warning("Taxi dispatched")
+            st.warning("Taxi is travelling to your pickup point.")
         else:
-            st.success("Taxi arrived")
+            st.success("Taxi has arrived at the pickup point.")
 
 if st.session_state.booking_message:
     st.success(st.session_state.booking_message)
 
-# ---------------------------- Statistics and fleet table ----------------------------
+# ---------------------------- Fleet metrics ----------------------------
 
 st.divider()
-st.subheader("📊 Fleet statistics")
+st.markdown("### 📊 Fleet overview")
 
 fleet = st.session_state.taxis
-available_n = sum(t["status"] == "Available" for t in fleet)
-coming_n = sum(t["status"] == "Coming" for t in fleet)
-arrived_n = sum(t["status"] == "Arrived" for t in fleet)
+available_count = sum(t["status"] == "Available" for t in fleet)
+coming_count = sum(t["status"] == "Coming" for t in fleet)
+arrived_count = sum(t["status"] == "Arrived" for t in fleet)
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total taxis", len(fleet))
-c2.metric("Available", available_n)
-c3.metric("On the way", coming_n)
-c4.metric("Arrived", arrived_n)
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Total taxis", len(fleet))
+m2.metric("Available", available_count)
+m3.metric("On the way", coming_count)
+m4.metric("Arrived", arrived_count)
 
-st.subheader("🚕 Taxi fleet overview")
 rows = []
 for taxi in fleet:
     row = {
         "Taxi": f"#{taxi['id']}",
-        "Speed (km/h)": taxi["speed"],
+        "Speed": f"{taxi['speed']} km/h",
+        "Status": taxi["status"],
         "Latitude": round(taxi["lat"], 5),
         "Longitude": round(taxi["lon"], 5),
-        "Status": taxi["status"],
     }
     if pickup is not None and taxi["status"] == "Available":
-        direct, _, eta = eta_for(taxi, pickup)
-        row["Distance to pickup (km)"] = round(direct, 2)
-        row["ETA (min)"] = round(eta, 1)
+        direct, _, eta = estimate_eta(taxi, pickup)
+        row["Distance"] = f"{direct:.2f} km"
+        row["ETA"] = f"{max(1, math.ceil(eta))} min"
     rows.append(row)
 
 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 st.markdown(
     """
-    <p style="text-align:center;color:#AFC0D5;padding:18px 0;">
-      TaxiGo · Educational simulation built with Python, Streamlit and Folium.
-      Vehicle positions, speeds, routes and ETAs are simulated.
+    <p style="text-align:center;color:#68778D;padding:20px 0 4px 0;">
+      TaxiGo · Student project · GPS position is provided by the browser with your permission.
+      Taxi locations, movement and arrival estimates are simulated.
     </p>
     """,
     unsafe_allow_html=True,
